@@ -1,0 +1,329 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_platform_widgets/flutter_platform_widgets.dart';
+import 'package:flutter_svg/flutter_svg.dart';
+
+import 'package:go_router/go_router.dart';
+import 'package:open_earable_flutter/open_earable_flutter.dart';
+import 'package:running_coach/view_models/wearables_provider.dart';
+import 'package:running_coach/widgets/devices/battery_state.dart';
+import 'package:running_coach/widgets/devices/connect_devices_page.dart';
+import 'package:running_coach/widgets/devices/device_detail/device_detail_page.dart';
+import 'package:provider/provider.dart';
+
+import 'device_detail/stereo_pos_label.dart';
+
+/// On this page the user can see all connected devices.
+///
+/// Tapping on a device will navigate to the [DeviceDetailPage].
+class DevicesPage extends StatefulWidget {
+  const DevicesPage({super.key});
+
+  @override
+  State<DevicesPage> createState() => _DevicesPageState();
+}
+
+class _DevicesPageState extends State<DevicesPage> {
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<WearablesProvider>(
+      builder: (context, wearablesProvider, child) {
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            if (constraints.maxWidth < 600) {
+              return _buildSmallScreenLayout(context, wearablesProvider);
+            } else {
+              return _buildLargeScreenLayout(context, wearablesProvider);
+            }
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildSmallScreenLayout(BuildContext context, WearablesProvider wearablesProvider) {
+    return PlatformScaffold(
+      appBar: PlatformAppBar(
+        title: PlatformText("Devices"),
+        trailingActions: [
+          PlatformIconButton(
+            icon: Icon(context.platformIcons.info),
+            onPressed: () {
+              context.push('/log-files');
+            },
+          ),
+          PlatformIconButton(
+            icon: Icon(context.platformIcons.bluetooth),
+            onPressed: () {
+              context.push('/connect-devices');
+            },
+          ),
+        ],
+      ),
+      body: _buildSmallScreenContent(context, wearablesProvider),
+    );
+  }
+
+  Widget _buildSmallScreenContent(BuildContext context, WearablesProvider wearablesProvider) {
+    if (wearablesProvider.wearables.isEmpty) {
+      return RefreshIndicator(
+        onRefresh: () async {
+          // await _startBluetooth();
+          //TODO: implement refresh logic
+        },
+        child: ListView(
+          children: [
+            SizedBox(
+              height: MediaQuery.of(context).size.height * 0.8,
+              child: Center(
+                child: PlatformText(
+                  "No devices connected",
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: () {
+        return WearableManager().connectToSystemDevices().then((wearables) {
+          for (var wearable in wearables) {
+            wearablesProvider.addWearable(wearable);
+          }
+        });
+      },
+      child: Padding(
+        padding: EdgeInsets.all(10),
+        child: ListView.builder(
+          itemCount: wearablesProvider.wearables.length,
+          itemBuilder: (context, index) {
+            return DeviceRow(device: wearablesProvider.wearables[index]);
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLargeScreenLayout(
+    BuildContext context,
+    WearablesProvider wearablesProvider,
+  ) {
+    return GridView.builder(
+      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 500,
+        childAspectRatio: 3,
+        crossAxisSpacing: 10,
+        mainAxisSpacing: 10,
+      ),
+      shrinkWrap: true,
+      physics: NeverScrollableScrollPhysics(),
+      itemCount: wearablesProvider.wearables.length + 1,
+      itemBuilder: (context, index) {
+        if (index == wearablesProvider.wearables.length) {
+          return GestureDetector(
+            onTap: () {
+              showPlatformModalSheet(
+                context: context,
+                builder: (context) => ConnectDevicesPage(),
+              );
+            },
+            child: Card(
+              color: Theme.of(context)
+                  .colorScheme
+                  .surfaceTint
+                  .withValues(alpha: 0.2),
+              child: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      PlatformIcons(context).add,
+                      color: Theme.of(context).colorScheme.surfaceTint,
+                    ),
+                    PlatformText(
+                      "Connect Device",
+                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                            color: Theme.of(context).colorScheme.surfaceTint,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }
+        return DeviceRow(device: wearablesProvider.wearables[index]);
+      },
+    );
+  }
+}
+
+
+// MARK: DeviceRow
+
+/// This widget represents a single device in the list/grid.
+/// Tapping on it will navigate to the [DeviceDetailPage].
+class DeviceRow extends StatelessWidget {
+  final Wearable _device;
+
+  const DeviceRow({super.key, required Wearable device}) : _device = device;
+
+  @override
+  Widget build(BuildContext context) {
+    String? wearableIconPath = _device.getWearableIconPath();
+
+    return GestureDetector(
+      onTap: () {
+        bool isLargeScreen = MediaQuery.of(context).size.width > 600;
+        if (isLargeScreen) {
+          showGeneralDialog(
+            context: context,
+            pageBuilder: (context, animation1, animation2) {
+              return Center(
+                child: SizedBox(
+                  width: MediaQuery.of(context).size.width * 0.5,
+                  height: MediaQuery.of(context).size.height * 0.5,
+                  child: DeviceDetailPage(device: _device),
+                ),
+              );
+            },
+          );
+          return;
+        }
+        context.push('/device-detail', extra: _device);
+      },
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(10.0),
+          child: Column(
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (wearableIconPath != null)
+                    SvgPicture.asset(
+                      wearableIconPath,
+                      width: 50,
+                      height: 50,
+                    ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      PlatformText(
+                        _device.name,
+                        style: Theme.of(context)
+                            .textTheme
+                            .bodyLarge
+                            ?.copyWith(fontWeight: FontWeight.bold),
+                      ),
+                      Row(children: [
+                        BatteryStateView(device: _device),
+                        if (_device.hasCapability<StereoDevice>())
+                          Padding(
+                            padding: EdgeInsets.only(left: 8.0),
+                            child: StereoPosLabel(device: _device.requireCapability<StereoDevice>()),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+                Spacer(),
+                if (_device.hasCapability<DeviceIdentifier>())
+                    FutureBuilder(
+                      future:
+                          _device.requireCapability<DeviceIdentifier>().readDeviceIdentifier(),
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState ==
+                            ConnectionState.waiting) {
+                          return PlatformCircularProgressIndicator();
+                        }
+                        if (snapshot.hasError) {
+                          return PlatformText("Error: ${snapshot.error}");
+                        }
+                        return PlatformText(snapshot.data.toString());
+                      },
+                    )
+                  else
+                    PlatformText(_device.deviceId),
+                ],
+              ),
+              if (_device.hasCapability<DeviceFirmwareVersion>())
+                Row(
+                  children: [
+                    PlatformText("Firmware Version: "),
+                    FutureBuilder(
+                      future: _device.requireCapability<DeviceFirmwareVersion>()
+                          .readDeviceFirmwareVersion(),
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState ==
+                            ConnectionState.waiting) {
+                          return PlatformCircularProgressIndicator();
+                        }
+                        if (snapshot.hasError) {
+                          return PlatformText("Error: ${snapshot.error}");
+                        }
+                        return PlatformText(snapshot.data.toString());
+                      },
+                    ),
+                    FutureBuilder(
+                      future: _device.requireCapability<DeviceFirmwareVersion>()
+                          .checkFirmwareSupport(),
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState ==
+                            ConnectionState.waiting) {
+                          return PlatformCircularProgressIndicator();
+                        }
+                        if (snapshot.hasError) {
+                          return PlatformText("Error: ${snapshot.error}");
+                        }
+                        switch (snapshot.data) {
+                          case FirmwareSupportStatus.supported:
+                            return SizedBox.shrink();
+                          case FirmwareSupportStatus.tooOld:
+                          case FirmwareSupportStatus.tooNew:
+                            return Icon(
+                              Icons.warning,
+                              color: Colors.orange,
+                              size: 16,
+                            );
+                          case FirmwareSupportStatus.unknown:
+                          default:
+                            return Icon(
+                              Icons.help,
+                              color: Colors.grey,
+                              size: 16,
+                            );
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              if (_device.hasCapability<DeviceHardwareVersion>())
+                Row(
+                  children: [
+                    PlatformText("Hardware Version: "),
+                    FutureBuilder(
+                      future: _device.requireCapability<DeviceHardwareVersion>()
+                          .readDeviceHardwareVersion(),
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState ==
+                            ConnectionState.waiting) {
+                          return PlatformCircularProgressIndicator();
+                        }
+                        if (snapshot.hasError) {
+                          return PlatformText("Error: ${snapshot.error}");
+                        }
+                        return PlatformText(snapshot.data.toString());
+                      },
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
